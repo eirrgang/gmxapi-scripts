@@ -71,6 +71,19 @@ with train:
 
 # In the default work graph, add a node that depends on `condition` and
 # wraps subgraph.
+# Implementation note: One way to make `train.is_converged` act as expected:
+# In the context manager above, we are adding operations in the generated `train` operation context.
+# The `label` arguments make named nodes in the graph managed by that context, as usual, but also
+# create scoped definitions of bound operations that allow reconstructing copies of that graph.
+# Properties on `train` act as the factories to produce those operations (with inputs and outputs
+# already fully specified). The while loop receives handles to the `is_converged` factory. Between
+# iterations of the while loop, the work graph in the `train` context will have been updated with
+# a refreshed work graph, so when the `is_converged` reference is actually called, the Result returned
+# is for the subgraph state in the current iteration. Note that this implies that code could retain
+# reference to a Result from a previous iteration, which is probably a very useful feature, but we
+# probably don't need to require all context implementations to support multiple active graphs, and
+# there may be types of access we want to prohibit when accessing a Result from a non-current context
+# (as noted above for local handles in an active subgraph managed context while defining `train`).
 train_loop = gmx.while_loop(
     operation=train,
     condition=gmx.logical_not(train.is_converged))

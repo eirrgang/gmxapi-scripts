@@ -1,37 +1,42 @@
 """
-Runner for adaptive MSMs
+Example: Runner for adaptive MSMs
 """
 
-import gmx
+import gmxapi as gmx
+
+# Custom analysis code
 import analysis
 
-# Add a TPR-loading operation to the default work graph (initially empty) that
-# produces simulation input data bundle (parameters, structure, topology)
-
 N = 50  # Number of ensemble members
-starting_structure = 'input_conf.gro' # Could start with a list of distinct confs
+starting_structure = 'input_conf.gro'  # Could start with a list of distinct confs
 topology_file = 'input.top'
 run_parameters = 'params.mdp'
 
-initial_tpr = gmx.commandline_operation('gmx', 'grompp',
-                                        input={'-f': run_parameters,
-                                        '-p': topology_file,
-                                        '-c': starting_structure})
+# Add a TPR-loading operation to the default work graph (initially empty) that
+# produces simulation input data bundle (parameters, structure, topology)
+initial_tpr = gmx.commandline_operation(
+    'gmx', 'grompp',
+    input={'-f': run_parameters,
+           '-p': topology_file,
+           '-c': starting_structure})
+
 # Set up an array of N simulations, starting from a single input.
 initial_input = gmx.load_tpr([initial_tpr for _ in range(N)])
 
 # We will need a pdb for MSM building in PyEmma
-editconf = gmx.commandline_operation('gmx', 'editconf',
+editconf = gmx.commandline_operation(
+    'gmx', 'editconf',
     inputs={'-f': starting_structure},
-    output={'-o': gmx.OutputFile('.pdb')})  # 'input_conf.pdb'
+    output={'-o': gmx.OutputFile('.pdb')})
 
 # Get a placeholder object that can serve as a sub context / work graph owner
 # and can be used in a control operation.
-subgraph = gmx.subgraph(variables={
-                            'conformation': initial_input,
-                            'P': gmx.NDArray(0., shape=(N, N)),
-                            'is_converged': False,
-                            })
+subgraph = gmx.subgraph(
+    variables={
+        'conformation': initial_input,
+        'P': gmx.NDArray(0., shape=(N, N)),
+        'is_converged': False,
+    })
 
 with subgraph:
     modified_input = gmx.modify_input(
@@ -40,11 +45,13 @@ with subgraph:
     # Get the output trajectories and pass to PyEmma to build the MSM
     # Return a stop condition object that can be used in gmx while loop to
     # terminate the simulation
-    allframes = gmx.commandline_operation('gmx', 'trajcat',
-                                          input={'-f': gmx.gather(md.output.trajectory.file)},
-                                          output={'-o': gmx.OutputFile('.trr')})
+    allframes = gmx.commandline_operation(
+        'gmx', 'trajcat',
+        input={'-f': gmx.gather(md.output.trajectory.file)},
+        output={'-o': gmx.OutputFile('.trr')})
 
-    adaptive_msm = analysis.msm_analyzer(topfile=editconf.file['-o'],
+    adaptive_msm = analysis.msm_analyzer(
+        topfile=editconf.file['-o'],
         trajectory=allframes.output.file['-o'],
         P=subgraph.P)
     # Update the persistent data for the subgraph
@@ -55,6 +62,7 @@ with subgraph:
 
 # In the default work graph, add a node that depends on `condition` and
 # wraps subgraph.
-my_loop = gmx.while_loop(operation=subgraph, condition=gmx.logical_not(subgraph.is_converged))
+my_loop = gmx.while_loop(operation=subgraph,
+                         condition=gmx.logical_not(subgraph.is_converged))
 
 gmx.run()
